@@ -1,0 +1,180 @@
+---
+title: "Causal vs. Marginal Effects"
+output:
+  pdf_document: default
+  html_document: default
+date: "2026-06-07"
+---
+
+```{r,echo=FALSE,warning=FALSE}
+library(dplyr)
+library(tidyverse)
+library(purrr)
+```
+
+```{r}
+estimate_causal_gcomp <- function(n_timepoints = 100, 
+                                        n_per_time = 50,
+                                        a_zx, a_zpz, b_yzp, b_yx,
+                                        c_z, c_zp, c_y,
+                                        sd_ez, sd_ezp) {
+  
+  total_n <- n_timepoints * n_per_time
+  
+  # Generate actual exposure values for each timepoint
+  # X_t_actual <- rep(0,n_timepoints)
+  X_t_actual <- runif(n_timepoints, 0, 3)
+  # Timepoint index for aggregation
+  timepoint_idx <- rep(1:n_timepoints, each = n_per_time)
+  
+  # Generate errors 
+  eps_z <- rnorm(total_n, mean = 0, sd = sd_ez)
+  eps_zp <- rnorm(total_n, mean = 0, sd = sd_ezp)
+  
+  # ===== do(X_t = X_t_actual) =====
+  X_do0 <- rep(X_t_actual, each = n_per_time)
+  Z_do0 <- a_zx * X_do0 + c_z + eps_z
+  Zp_do0 <- a_zpz * Z_do0 + c_zp + eps_zp
+  linear_pred_do0 <- b_yzp * Zp_do0 + b_yx * X_t_actual + c_y
+  p_do0 <- plogis(linear_pred_do0)
+  Y_ij_do0 <- rbinom(total_n, 1, p_do0)
+  Y_t_do0 <- tapply(Y_ij_do0, timepoint_idx, sum)
+  E_Y_do0 <- mean(Y_t_do0)
+  
+  # ===== do(X_t = X_t_actual + 1) =====
+  # Shift exposure up by 1 for each timepoint
+  X_do1 <- rep(X_t_actual + 1, each = n_per_time)
+  Z_do1 <- a_zx * X_do1 + c_z + eps_z
+  Zp_do1 <- a_zpz * Z_do1 + c_zp + eps_zp
+  linear_pred_do1 <- b_yzp * Zp_do1 + b_yx * (X_t_actual + 1) + c_y
+  p_do1 <- plogis(linear_pred_do1)
+  Y_ij_do1 <- rbinom(total_n, 1, p_do1)
+  Y_t_do1 <- tapply(Y_ij_do1, timepoint_idx, sum)
+  E_Y_do1 <- mean(Y_t_do1)
+  
+  # Causal effect: average effect of increasing X by 1
+  causal_effect <- log(E_Y_do1) - log(E_Y_do0)
+  
+  return(causal_effect)
+}
+```
+
+```{r}
+# Parameters
+a_zx <- 0.9; a_zpz <- 1.0; b_yzp <- -0.8; b_yx <- 0.5
+c_z <- 0.1; c_zp <- 0.3; c_y <- -4
+sd_ez <- 0.5; sd_ezp <- 0.4
+
+# Theoretical true total causal effect
+alpha <- a_zpz * a_zx
+T_true <- b_yx + b_yzp * alpha
+```
+```{r, echo = FALSE}
+# cat("\n========== THEORETICAL TRUE EFFECT ==========\n")
+# cat("Total causal effect (T):", T_true, "\n")
+# cat("======================================\n\n")
+```
+```{r}
+# Data generating function
+generate_data <- function(n_timepoints = 100, n_per_time = 50) {
+  total_n <- n_timepoints * n_per_time
+  X_t <- runif(n_timepoints, 0, 3)
+  X <- rep(X_t, each = n_per_time)
+  timepoint_idx <- rep(1:n_timepoints, each = n_per_time)
+  
+  eps_z <- rnorm(total_n, 0, sd_ez)
+  eps_zp <- rnorm(total_n, 0, sd_ezp)
+  
+  Z <- a_zx * X + c_z + eps_z
+  Zp <- a_zpz * Z + c_zp + eps_zp
+  linear_pred <- b_yzp * Zp + b_yx * X + c_y
+  Y_ij <- rbinom(total_n, 1, plogis(linear_pred))
+  Y_t <- tapply(Y_ij, timepoint_idx, sum)
+  
+  return(data.frame(timepoint = 1:n_timepoints, X = X_t, Y = Y_t, n = n_per_time))
+}
+
+# Estimate marginalized effect
+estimate_marginalized <- function(data) {
+  fit <- glm(Y ~ X, data = data, family = poisson(), offset = log(n))
+  return(coef(fit)["X"])
+}
+
+# Run simulation
+run_simulation <- function(n_reps = 200, n_timepoints = 100, n_per_time = 50) {
+  
+  results <- data.frame(
+    rep = 1:n_reps,
+    marginalized_effect = NA_real_,
+    causal_effect = NA_real_
+  )
+  
+  for (rep in 1:n_reps) {
+    if (rep %% 50 == 0) cat("Replication", rep, "of", n_reps, "\n")
+    
+    # Generate data
+    data <- generate_data(n_timepoints, n_per_time)
+    
+    # Marginalized effect
+    results$marginalized_effect[rep] <- estimate_marginalized(data)
+    
+    # Causal effect (using corrected function with x_ref = mean X)
+    # x_ref <- mean(data$X)
+    results$causal_effect[rep] <- estimate_causal_gcomp(
+      n_timepoints = n_timepoints,
+      n_per_time = n_per_time,
+      # x_ref = x_ref,
+      a_zx = a_zx, a_zpz = a_zpz, b_yzp = b_yzp, b_yx = b_yx,
+      c_z = c_z, c_zp = c_zp, c_y = c_y,
+      sd_ez = sd_ez, sd_ezp = sd_ezp
+    )
+  }
+  
+  return(results)
+}
+```
+```{r, results='hide', fig.show='hide'}
+# Run
+set.seed(42)
+cat("Running simulation...\n")
+sim_results <- run_simulation(n_reps = 5000, n_timepoints = 100, n_per_time = 80)
+
+# Summary
+summary_stats <- sim_results %>%
+  summarise(
+    marg_mean = mean(marginalized_effect, na.rm = TRUE),
+    marg_sd = sd(marginalized_effect, na.rm = TRUE),
+    causal_mean = mean(causal_effect, na.rm = TRUE),
+    causal_sd = sd(causal_effect, na.rm = TRUE),
+    diff_mean = mean(marginalized_effect - causal_effect, na.rm = TRUE)
+  )
+summary_stats
+```
+```{r, echo = FALSE}
+cat("\n========== RESULTS ==========\n")
+cat("Theoretical True EFFECT:", T_true, "\n")
+cat("Marginalized mean:", round(summary_stats$marg_mean, 4), "\n")
+cat("Causal mean:", round(summary_stats$causal_mean, 4), "\n")
+cat("Difference:", round(summary_stats$diff_mean, 4), "\n")
+cat("=============================\n")
+```
+```{r}
+# Histogram
+sim_results_long <- sim_results %>%
+  pivot_longer(cols = c(marginalized_effect, causal_effect),
+               names_to = "effect_type",
+               values_to = "estimate")
+
+ggplot(sim_results_long, aes(x = estimate, fill = effect_type)) +
+  geom_histogram(alpha = 0.6, bins = 40, position = "identity") +
+  geom_vline(xintercept = T_true, linetype = "dashed") +
+  labs(title = "Causal vs Marginalized Effect",
+       x = "Estimate", y = "Count", fill = "Effect") +
+  theme_minimal()
+
+
+
+
+
+```
+
