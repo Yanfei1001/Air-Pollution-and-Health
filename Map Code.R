@@ -5,7 +5,6 @@ library(httr)
 library(jsonlite)
 library(dplyr)
 
-# EPA Monitoring Stations with District assignments
 epa_stations <- data.frame(
   station_name = c(
     "Lancaster",
@@ -67,9 +66,6 @@ districts_geojson <- content(response, as = "text", encoding = "UTF-8")
 districts_sf <- st_read(districts_geojson, quiet = TRUE)
 districts_sf <- st_transform(districts_sf, st_crs(la_county))
 
-# ============================================
-# CREATE FIGURE WITH BLACK DOTS AND NO STATION LABELS
-# ============================================
 
 # Get centroids for district labels
 district_centroids <- st_centroid(districts_sf)
