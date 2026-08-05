@@ -41,7 +41,7 @@ K_out <- 4  # PM2.5, PM10, O3
 
 # Which pollutants go into outcome model? (1-indexed)
 # PM2.5 = 1, PM10 = 2, SO2 = 3, NO2 = 4, CO = 5, O3 = 6
-outcome_indices <- c(1, 2, 5, 6)  # PM2.5, PM10, O3
+outcome_indices <- c(1, 2, 5, 6)  
 
 # 4. Singular value decomposition Transformation
 # ----------------------------------------------------------------------------
