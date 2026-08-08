@@ -16,7 +16,7 @@ set.seed(123)
 # ==============================================================================
 
 n_sims <- 1000  # Number of simulations
-N <- 500        # Time points
+N <- 250        # Time points
 K <- 6          # Number of pollutants
 
 # True parameters (extended to 6 pollutants)
